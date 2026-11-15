@@ -1,0 +1,9 @@
+User ID,Time,Account,Operation,Coin,Change,Remark
+297790034,2021-10-24 13:52:53,Spot,Deposit,EUR,982,
+297790034,2021-10-25 10:21:41,Spot,Withdraw,ICP,-47.48680727,Withdraw fee is included
+297790034,2022-01-28 02:16:37,Spot,Staking Redemption,AXS,10.96229798,
+297790034,2021-10-24 14:17:05,Spot,Transaction Related,EUR,-982,
+297790034,2021-10-24 14:17:05,Spot,Transaction Related,AXS,9.21968511,
+297790034,2021-11-24 14:22:42,Spot,Transaction Related,ADA,-653.995005,
+297790034,2021-11-24 14:22:42,Spot,Transaction Related,EUR,982.49,
+

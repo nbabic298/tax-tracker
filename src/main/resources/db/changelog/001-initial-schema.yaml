@@ -1,0 +1,547 @@
+databaseChangeLog:
+  - changeSet:
+      id: 001-create-asset-table
+      author: tax-tracker
+      changes:
+        - createTable:
+            tableName: asset
+            columns:
+              - column:
+                  name: id
+                  type: BIGSERIAL
+                  autoIncrement: true
+                  constraints:
+                    primaryKey: true
+              - column:
+                  name: symbol
+                  type: VARCHAR(50)
+                  constraints:
+                    nullable: false
+                    unique: true
+              - column:
+                  name: name
+                  type: VARCHAR(255)
+                  constraints:
+                    nullable: false
+              - column:
+                  name: asset_type
+                  type: VARCHAR(50)
+                  constraints:
+                    nullable: false
+              - column:
+                  name: created_at
+                  type: TIMESTAMP
+                  defaultValueComputed: NOW()
+                  constraints:
+                    nullable: false
+      rollback:
+        - dropTable:
+            tableName: asset
+
+  - changeSet:
+      id: 001-create-index-asset-symbol
+      author: tax-tracker
+      changes:
+        - createIndex:
+            indexName: idx_asset_symbol
+            tableName: asset
+            columns:
+              - column:
+                  name: symbol
+
+  - changeSet:
+      id: 001-create-account-table
+      author: tax-tracker
+      changes:
+        - createTable:
+            tableName: account
+            columns:
+              - column:
+                  name: id
+                  type: BIGSERIAL
+                  autoIncrement: true
+                  constraints:
+                    primaryKey: true
+              - column:
+                  name: name
+                  type: VARCHAR(100)
+                  constraints:
+                    nullable: false
+              - column:
+                  name: type
+                  type: VARCHAR(50)
+                  constraints:
+                    nullable: false
+              - column:
+                  name: created_at
+                  type: TIMESTAMP
+                  defaultValueComputed: NOW()
+                  constraints:
+                    nullable: false
+      rollback:
+        - dropTable:
+            tableName: account
+
+  - changeSet:
+      id: 001-create-index-account-name
+      author: tax-tracker
+      changes:
+        - createIndex:
+            indexName: idx_account_name
+            tableName: account
+            columns:
+              - column:
+                  name: name
+
+  - changeSet:
+      id: 001-create-transaction-table
+      author: tax-tracker
+      changes:
+        - createTable:
+            tableName: transaction
+            columns:
+              - column:
+                  name: id
+                  type: BIGSERIAL
+                  autoIncrement: true
+                  constraints:
+                    primaryKey: true
+              - column:
+                  name: account_id
+                  type: BIGINT
+                  constraints:
+                    nullable: false
+              - column:
+                  name: asset_id
+                  type: BIGINT
+                  constraints:
+                    nullable: false
+              - column:
+                  name: timestamp
+                  type: TIMESTAMP
+                  constraints:
+                    nullable: false
+              - column:
+                  name: type
+                  type: VARCHAR(50)
+                  constraints:
+                    nullable: false
+              - column:
+                  name: amount
+                  type: NUMERIC(30, 18)
+                  constraints:
+                    nullable: false
+              - column:
+                  name: unit_price_eur
+                  type: NUMERIC(20, 8)
+              - column:
+                  name: fee_eur
+                  type: NUMERIC(20, 8)
+              - column:
+                  name: external_id
+                  type: VARCHAR(100)
+              - column:
+                  name: source_file
+                  type: VARCHAR(255)
+              - column:
+                  name: raw_json
+                  type: JSONB
+              - column:
+                  name: created_at
+                  type: TIMESTAMP
+                  defaultValueComputed: NOW()
+                  constraints:
+                    nullable: false
+      rollback:
+        - dropTable:
+            tableName: transaction
+
+  - changeSet:
+      id: 001-create-transaction-fk-account
+      author: tax-tracker
+      changes:
+        - addForeignKeyConstraint:
+            baseTableName: transaction
+            baseColumnNames: account_id
+            referencedTableName: account
+            referencedColumnNames: id
+            constraintName: fk_transaction_account
+            onDelete: RESTRICT
+
+  - changeSet:
+      id: 001-create-transaction-fk-asset
+      author: tax-tracker
+      changes:
+        - addForeignKeyConstraint:
+            baseTableName: transaction
+            baseColumnNames: asset_id
+            referencedTableName: asset
+            referencedColumnNames: id
+            constraintName: fk_transaction_asset
+            onDelete: RESTRICT
+
+  - changeSet:
+      id: 001-create-transaction-unique-constraint
+      author: tax-tracker
+      changes:
+        - addUniqueConstraint:
+            constraintName: uk_transaction_account_external_id
+            tableName: transaction
+            columnNames: account_id, external_id
+
+  - changeSet:
+      id: 001-create-index-transaction-account
+      author: tax-tracker
+      changes:
+        - createIndex:
+            indexName: idx_transaction_account_id
+            tableName: transaction
+            columns:
+              - column:
+                  name: account_id
+
+  - changeSet:
+      id: 001-create-index-transaction-asset
+      author: tax-tracker
+      changes:
+        - createIndex:
+            indexName: idx_transaction_asset_id
+            tableName: transaction
+            columns:
+              - column:
+                  name: asset_id
+
+  - changeSet:
+      id: 001-create-index-transaction-timestamp
+      author: tax-tracker
+      changes:
+        - createIndex:
+            indexName: idx_transaction_timestamp
+            tableName: transaction
+            columns:
+              - column:
+                  name: timestamp
+
+  - changeSet:
+      id: 001-create-index-transaction-type
+      author: tax-tracker
+      changes:
+        - createIndex:
+            indexName: idx_transaction_type
+            tableName: transaction
+            columns:
+              - column:
+                  name: type
+
+  - changeSet:
+      id: 001-create-index-transaction-external-id
+      author: tax-tracker
+      changes:
+        - createIndex:
+            indexName: idx_transaction_external_id
+            tableName: transaction
+            columns:
+              - column:
+                  name: external_id
+
+  - changeSet:
+      id: 001-create-tax-lot-table
+      author: tax-tracker
+      changes:
+        - createTable:
+            tableName: tax_lot
+            columns:
+              - column:
+                  name: id
+                  type: BIGSERIAL
+                  autoIncrement: true
+                  constraints:
+                    primaryKey: true
+              - column:
+                  name: asset_id
+                  type: BIGINT
+                  constraints:
+                    nullable: false
+              - column:
+                  name: acquired_at
+                  type: TIMESTAMP
+                  constraints:
+                    nullable: false
+              - column:
+                  name: original_amount
+                  type: NUMERIC(30, 18)
+                  constraints:
+                    nullable: false
+              - column:
+                  name: remaining_amount
+                  type: NUMERIC(30, 18)
+                  constraints:
+                    nullable: false
+              - column:
+                  name: cost_basis_eur
+                  type: NUMERIC(20, 8)
+                  constraints:
+                    nullable: false
+              - column:
+                  name: source_transaction_id
+                  type: BIGINT
+                  constraints:
+                    nullable: false
+              - column:
+                  name: carried_over_from_lot_id
+                  type: BIGINT
+              - column:
+                  name: created_at
+                  type: TIMESTAMP
+                  defaultValueComputed: NOW()
+                  constraints:
+                    nullable: false
+      rollback:
+        - dropTable:
+            tableName: tax_lot
+
+  - changeSet:
+      id: 001-create-tax-lot-fk-asset
+      author: tax-tracker
+      changes:
+        - addForeignKeyConstraint:
+            baseTableName: tax_lot
+            baseColumnNames: asset_id
+            referencedTableName: asset
+            referencedColumnNames: id
+            constraintName: fk_tax_lot_asset
+            onDelete: RESTRICT
+
+  - changeSet:
+      id: 001-create-tax-lot-fk-source-transaction
+      author: tax-tracker
+      changes:
+        - addForeignKeyConstraint:
+            baseTableName: tax_lot
+            baseColumnNames: source_transaction_id
+            referencedTableName: transaction
+            referencedColumnNames: id
+            constraintName: fk_tax_lot_source_transaction
+            onDelete: RESTRICT
+
+  - changeSet:
+      id: 001-create-tax-lot-fk-carried-over
+      author: tax-tracker
+      changes:
+        - addForeignKeyConstraint:
+            baseTableName: tax_lot
+            baseColumnNames: carried_over_from_lot_id
+            referencedTableName: tax_lot
+            referencedColumnNames: id
+            constraintName: fk_tax_lot_carried_over_from
+            onDelete: SET NULL
+
+  - changeSet:
+      id: 001-create-index-tax-lot-asset-acquired
+      author: tax-tracker
+      changes:
+        - createIndex:
+            indexName: idx_tax_lot_asset_acquired
+            tableName: tax_lot
+            columns:
+              - column:
+                  name: asset_id
+              - column:
+                  name: acquired_at
+
+  - changeSet:
+      id: 001-create-index-tax-lot-asset
+      author: tax-tracker
+      changes:
+        - createIndex:
+            indexName: idx_tax_lot_asset
+            tableName: tax_lot
+            columns:
+              - column:
+                  name: asset_id
+
+  - changeSet:
+      id: 001-create-disposal-table
+      author: tax-tracker
+      changes:
+        - createTable:
+            tableName: disposal
+            columns:
+              - column:
+                  name: id
+                  type: BIGSERIAL
+                  autoIncrement: true
+                  constraints:
+                    primaryKey: true
+              - column:
+                  name: lot_id
+                  type: BIGINT
+                  constraints:
+                    nullable: false
+              - column:
+                  name: disposed_at
+                  type: TIMESTAMP
+                  constraints:
+                    nullable: false
+              - column:
+                  name: amount
+                  type: NUMERIC(30, 18)
+                  constraints:
+                    nullable: false
+              - column:
+                  name: proceeds_eur
+                  type: NUMERIC(20, 8)
+                  constraints:
+                    nullable: false
+              - column:
+                  name: cost_basis_eur
+                  type: NUMERIC(20, 8)
+                  constraints:
+                    nullable: false
+              - column:
+                  name: gain_eur
+                  type: NUMERIC(20, 8)
+                  constraints:
+                    nullable: false
+              - column:
+                  name: is_exempt
+                  type: BOOLEAN
+                  constraints:
+                    nullable: false
+              - column:
+                  name: tax_year
+                  type: INTEGER
+                  constraints:
+                    nullable: false
+              - column:
+                  name: created_at
+                  type: TIMESTAMP
+                  defaultValueComputed: NOW()
+                  constraints:
+                    nullable: false
+      rollback:
+        - dropTable:
+            tableName: disposal
+
+  - changeSet:
+      id: 001-create-disposal-fk-lot
+      author: tax-tracker
+      changes:
+        - addForeignKeyConstraint:
+            baseTableName: disposal
+            baseColumnNames: lot_id
+            referencedTableName: tax_lot
+            referencedColumnNames: id
+            constraintName: fk_disposal_lot
+            onDelete: RESTRICT
+
+  - changeSet:
+      id: 001-create-index-disposal-tax-year
+      author: tax-tracker
+      changes:
+        - createIndex:
+            indexName: idx_disposal_tax_year
+            tableName: disposal
+            columns:
+              - column:
+                  name: tax_year
+
+  - changeSet:
+      id: 001-create-index-disposal-lot
+      author: tax-tracker
+      changes:
+        - createIndex:
+            indexName: idx_disposal_lot_id
+            tableName: disposal
+            columns:
+              - column:
+                  name: lot_id
+
+  - changeSet:
+      id: 001-create-swap-link-table
+      author: tax-tracker
+      changes:
+        - createTable:
+            tableName: swap_link
+            columns:
+              - column:
+                  name: id
+                  type: BIGSERIAL
+                  autoIncrement: true
+                  constraints:
+                    primaryKey: true
+              - column:
+                  name: source_transaction_id
+                  type: BIGINT
+                  constraints:
+                    nullable: false
+              - column:
+                  name: target_transaction_id
+                  type: BIGINT
+                  constraints:
+                    nullable: false
+              - column:
+                  name: created_at
+                  type: TIMESTAMP
+                  defaultValueComputed: NOW()
+                  constraints:
+                    nullable: false
+      rollback:
+        - dropTable:
+            tableName: swap_link
+
+  - changeSet:
+      id: 001-create-swap-link-fk-source
+      author: tax-tracker
+      changes:
+        - addForeignKeyConstraint:
+            baseTableName: swap_link
+            baseColumnNames: source_transaction_id
+            referencedTableName: transaction
+            referencedColumnNames: id
+            constraintName: fk_swap_link_source
+            onDelete: RESTRICT
+
+  - changeSet:
+      id: 001-create-swap-link-fk-target
+      author: tax-tracker
+      changes:
+        - addForeignKeyConstraint:
+            baseTableName: swap_link
+            baseColumnNames: target_transaction_id
+            referencedTableName: transaction
+            referencedColumnNames: id
+            constraintName: fk_swap_link_target
+            onDelete: RESTRICT
+
+  - changeSet:
+      id: 001-create-swap-link-unique-constraint
+      author: tax-tracker
+      changes:
+        - addUniqueConstraint:
+            constraintName: uk_swap_link_source_target
+            tableName: swap_link
+            columnNames: source_transaction_id, target_transaction_id
+
+  - changeSet:
+      id: 001-create-index-swap-link-source
+      author: tax-tracker
+      changes:
+        - createIndex:
+            indexName: idx_swap_link_source
+            tableName: swap_link
+            columns:
+              - column:
+                  name: source_transaction_id
+
+  - changeSet:
+      id: 001-create-index-swap-link-target
+      author: tax-tracker
+      changes:
+        - createIndex:
+            indexName: idx_swap_link_target
+            tableName: swap_link
+            columns:
+              - column:
+                  name: target_transaction_id
+

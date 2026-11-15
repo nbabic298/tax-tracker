@@ -1,0 +1,26 @@
+databaseChangeLog:
+  - changeSet:
+      id: 004-expand-financial-fields
+      author: tax-tracker
+      comment: "Add feeAmount, feeAsset for better financial tracking"
+      changes:
+        - addColumn:
+            tableName: transaction
+            columns:
+              - column:
+                  name: fee_amount
+                  type: NUMERIC(30,18)
+                  remarks: "Fee quantity in fee asset"
+              - column:
+                  name: fee_asset
+                  type: VARCHAR(20)
+                  remarks: "Fee denomination (e.g. BTC, EUR, ADA)"
+      rollback:
+        - dropColumn:
+            tableName: transaction
+            columnName: fee_amount
+        - dropColumn:
+            tableName: transaction
+            columnName: fee_asset
+
+

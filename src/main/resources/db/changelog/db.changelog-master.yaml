@@ -1,0 +1,12 @@
+databaseChangeLog:
+  - include:
+      file: db/changelog/001-initial-schema.yaml
+  - include:
+      file: db/changelog/002-raw-json-to-text.yaml
+  - include:
+      file: db/changelog/003-add-amount-fiat.yaml
+  - include:
+      file: db/changelog/004-expand-financial-fields.yaml
+  - include:
+      file: db/changelog/005-expand-unit-price-precision.yaml
+

@@ -1,0 +1,16 @@
+databaseChangeLog:
+  - changeSet:
+      id: 002-raw-json-to-text
+      author: tax-tracker
+      comment: "raw_json stores raw CSV lines from importers, not actual JSON — change to text"
+      changes:
+        - modifyDataType:
+            tableName: transaction
+            columnName: raw_json
+            newDataType: TEXT
+      rollback:
+        - modifyDataType:
+            tableName: transaction
+            columnName: raw_json
+            newDataType: JSONB
+

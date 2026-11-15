@@ -1,0 +1,4 @@
+"Transaction ID";Timestamp;"Transaction Type";In/Out;"Amount Fiat";Fiat;"Amount Asset";Asset;"Asset market price";"Asset market price currency";"Asset class";"Product ID";Fee;"Fee asset";"Fee percent";Spread;"Spread Currency";"Tax Fiat"
+T1efa2768-19e6-6c54-a1d0-895edada382d;2024-11-14T11:52:14+01:00;sell;incoming;4416.28;EUR;4416.28000000;BCPEUR;1.00;EUR;;2941;-;-;-;-;-;0.00
+T1efa2767-98a1-6d70-7b7a-effbcd93fb4f;2024-11-14T11:52:14+01:00;buy;outgoing;4416.28;EUR;77.31637048;S&P500;57.12;EUR;"ETF (derivative)";116;-;-;-;22.09000000;EUR;0.00
+

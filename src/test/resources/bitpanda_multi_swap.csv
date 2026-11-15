@@ -1,0 +1,6 @@
+"Transaction ID";Timestamp;"Transaction Type";In/Out;"Amount Fiat";Fiat;"Amount Asset";Asset;"Asset market price";"Asset market price currency";"Asset class";"Product ID";Fee;"Fee asset";"Fee percent";Spread;"Spread Currency";"Tax Fiat"
+T1efa275b-d5fe-6d30-a1ea-a96f339533c5;2024-11-14T11:46:54+01:00;sell;incoming;7.66;EUR;42.81647000;GODL;0.02;EUR;Cryptocurrency;3249;-;-;-;-;-;0.00
+T1efa275b-d667-6ce6-a1ea-a96f339533c5;2024-11-14T11:46:54+01:00;buy;outgoing;7.66;EUR;1.56111698;BEST;0.47;EUR;Cryptocurrency;33;-;-;-;-;-;0.00
+T1efa275b-d606-6262-a1ea-a96f339533c5;2024-11-14T11:46:55+01:00;sell;incoming;0.47;EUR;2.04040000;BST;0.23;EUR;Cryptocurrency;3237;-;-;-;-;-;0.00
+T1efa275b-d6df-66f8-a1ea-a96f339533c5;2024-11-14T11:46:55+01:00;buy;outgoing;0.47;EUR;1.00510273;BEST;0.47;EUR;Cryptocurrency;33;-;-;-;-;-;0.00
+

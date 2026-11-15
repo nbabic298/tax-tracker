@@ -1,0 +1,32 @@
+databaseChangeLog:
+  - changeSet:
+      id: 005-standardize-financial-precision
+      author: tax-tracker
+      comment: "Standardize all financial columns to NUMERIC(30,18) for maximum precision"
+      changes:
+        - modifyDataType:
+            tableName: transaction
+            columnName: unit_price_eur
+            newDataType: NUMERIC(30,18)
+        - modifyDataType:
+            tableName: transaction
+            columnName: amount_fiat
+            newDataType: NUMERIC(30,18)
+        - modifyDataType:
+            tableName: transaction
+            columnName: fee_eur
+            newDataType: NUMERIC(30,18)
+      rollback:
+        - modifyDataType:
+            tableName: transaction
+            columnName: unit_price_eur
+            newDataType: NUMERIC(20,12)
+        - modifyDataType:
+            tableName: transaction
+            columnName: amount_fiat
+            newDataType: NUMERIC(30,8)
+        - modifyDataType:
+            tableName: transaction
+            columnName: fee_eur
+            newDataType: NUMERIC(20,8)
+

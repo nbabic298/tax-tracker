@@ -1,0 +1,18 @@
+databaseChangeLog:
+  - changeSet:
+      id: 003-add-amount-fiat
+      author: tax-tracker
+      comment: "Add amountFiat column to store total EUR value of each transaction"
+      changes:
+        - addColumn:
+            tableName: transaction
+            columns:
+              - column:
+                  name: amount_fiat
+                  type: NUMERIC(30,8)
+                  remarks: "Total EUR value (unitPriceEur × amount)"
+      rollback:
+        - dropColumn:
+            tableName: transaction
+            columnName: amount_fiat
+

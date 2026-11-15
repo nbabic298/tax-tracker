@@ -1,0 +1,3 @@
+"Transaction ID";Timestamp;"Transaction Type";In/Out;"Amount Fiat";Fiat;"Amount Asset";Asset;"Asset market price";"Asset market price currency";"Asset class";"Product ID";Fee;"Fee asset";"Fee percent";Spread;"Spread Currency";"Tax Fiat"
+1eefc0fd-86ef-6e68-a615-e35b8d6ab057;2024-04-16T18:39:08+02:00;reward;incoming;0.15;EUR;0.00005434;ETH;2760.40;EUR;Cryptocurrency;5;-;-;-;-;-
+
