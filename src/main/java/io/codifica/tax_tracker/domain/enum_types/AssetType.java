@@ -5,6 +5,7 @@ package io.codifica.tax_tracker.domain.enum_types;
  * Extended to include Bitpanda's precious metal and commodity products.
  */
 public enum AssetType {
+    FIAT,
     CRYPTO,
     STOCK,
     ETF,

@@ -4,6 +4,8 @@ import io.codifica.tax_tracker.domain.importer.*;
 import org.apache.commons.csv.CSVFormat;
 import org.apache.commons.csv.CSVParser;
 import org.apache.commons.csv.CSVRecord;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.math.BigDecimal;
@@ -49,6 +51,7 @@ import java.util.stream.Collectors;
 public class BitpandaTransactionImporter implements TransactionImporter {
 
     static final String IMPORTER_NAME = "BitpandaTransactionImporter";
+    private static final Logger log = LoggerFactory.getLogger(BitpandaTransactionImporter.class);
 
     private static final String BITPANDA_FILENAME_PATTERN = "(?i).*bitpanda.*\\.csv";
 
@@ -219,9 +222,65 @@ public class BitpandaTransactionImporter implements TransactionImporter {
 
     private void emitSwapPair(CSVRecord sellRow, CSVRecord buyRow,
                               List<ParsedTransaction> out, List<String> warnings) {
-        // Both legs already have market prices in EUR — no enrichment warning needed.
-        out.add(buildCommon(sellRow, "SELL").build());
-        out.add(buildCommon(buyRow, "BUY").build());
+        String sellAsset = get(sellRow, COL_ASSET);
+        String buyAsset = get(buyRow, COL_ASSET);
+
+        // Check if this is a crypto-to-crypto swap:
+        // - Both assets are non-EUR and non-BCPEUR
+        // - Timestamps match (should, since they're in same group)
+        boolean isCryptoSwap = !isFiatAsset(sellAsset) && !isBcpeurAsset(sellAsset) &&
+                               !isFiatAsset(buyAsset) && !isBcpeurAsset(buyAsset);
+
+        if (isCryptoSwap) {
+            // Crypto-to-crypto swap: emit as single BUY with feeAsset set
+            // This preserves the cost basis chain for TaxLotService.processCryptoToCryptoSwap()
+            emitCryptoToCryptoSwap(sellRow, buyRow, out, warnings);
+        } else {
+            // EUR-based swap or mixed: emit as separate SELL and BUY
+            // (Both legs already have market prices in EUR — no enrichment warning needed.)
+            out.add(buildCommon(sellRow, "SELL").build());
+            out.add(buildCommon(buyRow, "BUY").build());
+        }
+    }
+
+    /**
+     * Emits a crypto-to-crypto swap as a single BUY transaction with feeAsset set.
+     *
+     * <p>Example: sell 0.5 SRM @ 0.04 EUR/SRM, buy 0.0003 BTC @ 26554.81 EUR/BTC
+     * → Single BUY 0.0003 BTC with feeAsset=SRM, feeAmount=0.5
+     * This signals to TaxLotService that cost basis should be derived from the SRM lot.
+     *
+     * @param sellRow the SELL leg (asset being disposed)
+     * @param buyRow the BUY leg (asset being acquired)
+     * @param out parsed transactions list
+     * @param warnings warning list
+     */
+    private void emitCryptoToCryptoSwap(CSVRecord sellRow, CSVRecord buyRow,
+                                        List<ParsedTransaction> out, List<String> warnings) {
+        String sellAsset = get(sellRow, COL_ASSET);
+        BigDecimal sellAmount = parseBigDecimal(get(sellRow, COL_AMOUNT_ASSET));
+
+        // Build the BUY leg as a crypto-to-crypto swap:
+        // - Asset = acquired asset (buy leg)
+        // - Amount = acquired amount
+        // - unitPriceEur = sell price (we'll derive correct price from cost basis later)
+        // - feeAsset = sold asset (source of cost basis)
+        // - feeAmount = amount of sold asset (how much was spent)
+        // - amountFiat = null (not enriched; will be derived from source lot)
+
+        ParsedTransaction swapTx = buildCommon(buyRow, "BUY")
+                .feeAsset(sellAsset)      // Track which asset was spent
+                .feeAmount(sellAmount)    // Track how much was spent
+                .fiatAmount(null)         // Will be calculated from cost basis chain
+                .build();
+
+        out.add(swapTx);
+
+        log.debug("Emitted crypto-to-crypto swap: {} {} → {} {} " +
+                "(feeAsset={}, feeAmount={})",
+                sellAmount, sellAsset,
+                parseBigDecimal(get(buyRow, COL_AMOUNT_ASSET)), get(buyRow, COL_ASSET),
+                sellAsset, sellAmount);
     }
 
     private void emitBuy(CSVRecord r, List<ParsedTransaction> out) {
@@ -317,9 +376,19 @@ public class BitpandaTransactionImporter implements TransactionImporter {
         return BCPEUR.equals(get(r, COL_ASSET));
     }
 
+    /** Check if asset symbol is BCPEUR (Bitpanda's internal EUR token). */
+    private boolean isBcpeurAsset(String assetSymbol) {
+        return BCPEUR.equals(assetSymbol);
+    }
+
     private boolean isFiatRow(CSVRecord r) {
         return FIAT_ASSET_CLASS.equals(get(r, COL_ASSET_CLASS))
                 || "EUR".equals(get(r, COL_ASSET));
+    }
+
+    /** Check if asset symbol is a fiat currency (EUR, USD, GBP). */
+    private boolean isFiatAsset(String assetSymbol) {
+        return "EUR".equals(assetSymbol) || "USD".equals(assetSymbol) || "GBP".equals(assetSymbol);
     }
 
     private boolean isStakeTransfer(CSVRecord r) {

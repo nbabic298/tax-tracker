@@ -69,6 +69,10 @@ public class PriceEnrichmentService {
      * <p>Returns a new list with enriched copies (originals are immutable).
      * The returned list preserves input order.
      *
+     * <p>NOTE: Crypto-to-crypto swaps (identified by feeAsset != null) are NOT enriched here.
+     * Their unitPriceEur and amountFiat are calculated during TaxLot creation from the
+     * source transaction's cost basis, to preserve holding period and capital gains tracking.
+     *
      * @param transactions input list; may contain nulls (they are passed through unchanged)
      * @return {@link EnrichmentResult} containing the enriched list and a summary report
      */
@@ -109,7 +113,7 @@ public class PriceEnrichmentService {
     }
 
     // -------------------------------------------------------------------------
-    // Phase 1: stablecoin pair derivation
+    // Phase 1: stablecoin-derived enrichment
     // -------------------------------------------------------------------------
 
     /**

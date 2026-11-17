@@ -8,5 +8,7 @@ databaseChangeLog:
   - include:
       file: db/changelog/004-expand-financial-fields.yaml
   - include:
-      file: db/changelog/005-expand-unit-price-precision.yaml
+      file: db/changelog/005-standardize-financial-precision.yaml
+  - include:
+      file: db/changelog/007-add-closed-at-to-tax-lot.yaml
 

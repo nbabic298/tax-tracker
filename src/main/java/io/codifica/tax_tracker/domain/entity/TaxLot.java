@@ -5,6 +5,7 @@ import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
+import lombok.Setter;
 
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -24,6 +25,7 @@ import java.time.Instant;
         @Index(name = "idx_tax_lot_asset", columnList = "asset_id")
 })
 @Getter
+@Setter
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
@@ -82,6 +84,15 @@ public class TaxLot {
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "carried_over_from_lot_id")
     private TaxLot carriedOverFromLot;
+
+    /**
+     * Timestamp when this lot became fully disposed (remainingAmount = 0).
+     * Null if lot still has remaining amount. Set by TaxLotService when
+     * remainingAmount is reduced to zero via disposal or withdrawal fees.
+     * Used to exclude closed lots from FIFO queries and for audit trail.
+     */
+    @Column(name = "closed_at")
+    private Instant closedAt;
 
     /**
      * Record creation timestamp (audit trail).

@@ -27,4 +27,5 @@ binance:
 import:
   binance:
     file: src/main/resources/import-files/Binance-Transaction-History-202611131053(UTC+1)-part1-of1.csv
+    withdraw-file: src/main/resources/import-files/Binance-Withdraw-History-202611141647(UTC+1)-part1-of1.csv
 

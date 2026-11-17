@@ -104,6 +104,12 @@ public class BinanceTransactionImporter implements TransactionImporter {
                     continue;
                 }
 
+                // Skip withdrawals — handled by separate Binance-Withdraw-History file
+                // which includes detailed fee information for cost basis adjustment
+                if (OP_WITHDRAW.equals(operation)) {
+                    continue;
+                }
+
                 if (OP_TRANSACTION_RELATED.equals(operation) || OP_BINANCE_CONVERT.equals(operation)) {
                     if (i + 1 < records.size()) {
                         CSVRecord next = records.get(i + 1);
@@ -112,8 +118,16 @@ public class BinanceTransactionImporter implements TransactionImporter {
                                 parseTimestamp(get(record, COL_TIME)).equals(parseTimestamp(get(next, COL_TIME))) &&
                                 !get(record, COL_COIN).equals(get(next, COL_COIN))) {
 
-                            // Two-leg transaction: pair EUR with asset and emit single BUY
-                            parseTransactionRelatedPair(record, next, transactions, warnings);
+                            // Check if one leg is EUR (fiat-based trade)
+                            boolean isEurTrade = "EUR".equals(get(record, COL_COIN)) || "EUR".equals(get(next, COL_COIN));
+
+                            if (isEurTrade) {
+                                // EUR + crypto: collapse as BUY with calculated unitPriceEur
+                                parseTransactionRelatedPair(record, next, transactions, warnings);
+                            } else {
+                                // Crypto + crypto: collapse as BUY with quote leg stored in fee fields
+                                parseCryptoToCryptoPair(record, next, transactions, warnings);
+                            }
                             processedIndices.add(i);
                             processedIndices.add(i + 1);
                             continue;
@@ -184,6 +198,56 @@ public class BinanceTransactionImporter implements TransactionImporter {
         transactions.add(builder.build());
     }
 
+    /**
+     * Parses a crypto-to-crypto Binance Convert pair (e.g., BTC → SOL without EUR intermediary).
+     * Collapses them into a single BUY transaction where:
+     * - amount = quote asset acquired (e.g., 7.5 SOL)
+     * - feeAmount = base asset spent (e.g., 0.5 BTC) — stored temporarily for enrichment
+     * - feeAsset = base asset symbol (e.g., "BTC")
+     * - unitPriceEur = null (TBD by enrichment, using both asset prices)
+     * - amountFiat = null initially, calculated after enrichment as (feeAmount × quote_price) / amount
+     *
+     * Example:
+     *   BTC -0.5, SOL +7.5  →  BUY 7.5 SOL with feeAmount=0.5, feeAsset=BTC
+     *   After enrichment: amountFiat = (0.5 BTC × BTC_EUR_price) / 7.5 SOL
+     */
+    private void parseCryptoToCryptoPair(CSVRecord leg1, CSVRecord leg2,
+                                         List<ParsedTransaction> transactions,
+                                         List<String> warnings) {
+        String coin1 = get(leg1, COL_COIN);
+        String coin2 = get(leg2, COL_COIN);
+        BigDecimal change1 = new BigDecimal(get(leg1, COL_CHANGE));
+        BigDecimal change2 = new BigDecimal(get(leg2, COL_CHANGE));
+
+        // Determine base (outgoing, negative) and quote (incoming, positive)
+        String baseCoin, quoteCoin;
+        BigDecimal baseAmount, quoteAmount;
+
+        if (change1.compareTo(BigDecimal.ZERO) < 0) {
+            // leg1 is outgoing (base)
+            baseCoin = coin1;
+            baseAmount = change1.abs();
+            quoteCoin = coin2;
+            quoteAmount = change2.abs();
+        } else {
+            // leg2 is outgoing (base)
+            baseCoin = coin2;
+            baseAmount = change2.abs();
+            quoteCoin = coin1;
+            quoteAmount = change1.abs();
+        }
+
+        Instant timestamp = parseTimestamp(get(leg1, COL_TIME));
+
+        // Emit BUY of the quote asset
+        // Store the base asset info in feeAmount/feeAsset for later enrichment
+        transactions.add(ParsedTransaction.builder(IMPORTER_NAME, timestamp, quoteCoin, quoteAmount, "BUY")
+                .feeAmount(baseAmount)  // Temporarily stores base amount for enrichment calculation
+                .feeAsset(baseCoin)  // Stores base asset symbol
+                .rawLine(rawLine(leg1) + " | " + rawLine(leg2))
+                .build());
+    }
+
     private ParsedTransaction parseSingle(CSVRecord record, List<String> warnings) {
         String operation = get(record, COL_OPERATION);
         String coin      = get(record, COL_COIN);
@@ -193,12 +257,11 @@ public class BinanceTransactionImporter implements TransactionImporter {
         String type = switch (operation) {
             case OP_DEPOSIT,
                  OP_DEPOSIT_FIAT                  -> "TRANSFER_IN";
-            case OP_WITHDRAW                      -> "TRANSFER_OUT";
+            case OP_WITHDRAW, OP_STAKING_PURCHASE -> "TRANSFER_OUT";
             // Staking rewards and savings yield are income at FMV on receipt date,
             // NOT airdrops (cost basis = 0). Treat as STAKING_REWARD.
             case OP_STAKING_REWARDS,
                  OP_SIMPLE_EARN_FLEXIBLE_INTEREST -> "STAKING_REWARD";
-            case OP_STAKING_PURCHASE              -> "TRANSFER_OUT";
             default                               -> null;
         };
         if (type == null) return null;

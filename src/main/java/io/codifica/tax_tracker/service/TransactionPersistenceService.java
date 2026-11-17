@@ -2,54 +2,61 @@ package io.codifica.tax_tracker.service;
 
 import io.codifica.tax_tracker.domain.entity.Account;
 import io.codifica.tax_tracker.domain.entity.Asset;
+import io.codifica.tax_tracker.domain.entity.Transaction;
 import io.codifica.tax_tracker.domain.enum_types.AssetType;
 import io.codifica.tax_tracker.domain.enum_types.TransactionType;
 import io.codifica.tax_tracker.domain.importer.ParsedTransaction;
 import io.codifica.tax_tracker.repository.AccountRepository;
 import io.codifica.tax_tracker.repository.AssetRepository;
+import io.codifica.tax_tracker.repository.TransactionRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Maps {@link ParsedTransaction} objects to JPA entities and persists them.
  *
- * <h2>Transaction isolation strategy</h2>
- * Each row is delegated to {@link SingleTransactionSaver#save}, which runs in
- * its own {@code REQUIRES_NEW} database transaction (separate Spring bean →
- * proxy intercepts the annotation). A failure on row N rolls back only that row;
- * rows N+1…M are unaffected and the Hibernate session in this bean stays clean.
+ * <h2>All-or-nothing semantics</h2>
+ * Validates all rows before persisting any. If validation fails for any row,
+ * the entire batch is rejected. Otherwise, all rows are persisted in a single
+ * database transaction.
  */
 @Service
 public class TransactionPersistenceService {
 
     private static final Logger log = LoggerFactory.getLogger(TransactionPersistenceService.class);
 
+    private final TransactionRepository transactionRepository;
     private final AssetRepository assetRepository;
     private final AccountRepository accountRepository;
-    private final SingleTransactionSaver singleSaver;
 
-    public TransactionPersistenceService(AssetRepository assetRepository,
-                                         AccountRepository accountRepository,
-                                         SingleTransactionSaver singleSaver) {
-        this.assetRepository  = assetRepository;
+    public TransactionPersistenceService(TransactionRepository transactionRepository,
+                                         AssetRepository assetRepository,
+                                         AccountRepository accountRepository) {
+        this.transactionRepository = transactionRepository;
+        this.assetRepository = assetRepository;
         this.accountRepository = accountRepository;
-        this.singleSaver       = singleSaver;
     }
 
     /**
-     * Persists a list of parsed transactions, each in its own DB transaction.
+     * Persists a list of parsed transactions with all-or-nothing semantics.
+     *
+     * <p>Validation phase: checks that all rows can be mapped to valid transaction types.
+     * If any row fails validation, the entire batch is rejected with an exception.
+     *
+     * <p>Persistence phase: creates/fetches all assets and accounts, then persists all rows
+     * in a single database transaction.
      *
      * @param parsed      list of enriched (or partially enriched) parsed transactions
      * @param accountName exchange name, e.g. "Binance"
      * @param accountType account type, e.g. "exchange"
      * @param sourceFile  original filename for audit trail
-     * @return number of rows actually saved
+     * @return number of rows persisted
+     * @throws IllegalArgumentException if any row has an invalid transaction type
      */
     @Transactional
     public int persistAll(List<ParsedTransaction> parsed,
@@ -57,31 +64,54 @@ public class TransactionPersistenceService {
                           String accountType,
                           String sourceFile) {
 
-        Account account = findOrCreateAccount(accountName, accountType);
-        Map<String, Asset> assetCache = new ConcurrentHashMap<>();
-
-        int saved = 0;
-        int skipped = 0;
-        for (ParsedTransaction p : parsed) {
+        // Phase 1: Validate all rows upfront — fail fast if any row is invalid
+        List<ValidatedRow> validatedRows = new ArrayList<>();
+        for (int i = 0; i < parsed.size(); i++) {
+            ParsedTransaction p = parsed.get(i);
             TransactionType type = mapType(p.getType());
             if (type == null) {
-                log.warn("Skipping unknown type '{}' for asset {}", p.getType(), p.getAsset());
-                skipped++;
-                continue;
+                throw new IllegalArgumentException(
+                        "Row " + (i + 1) + ": unknown transaction type '" + p.getType()
+                        + "' for asset " + p.getAsset());
             }
-            Asset asset = assetCache.computeIfAbsent(p.getAsset(), this::findOrCreateAsset);
-            try {
-                // Delegates to a separate bean so REQUIRES_NEW is honoured by the proxy
-                singleSaver.save(p, account, asset, type, sourceFile);
-                saved++;
-            } catch (Exception ex) {
-                log.error("Failed to persist {}/{} at {}: {}",
-                        p.getType(), p.getAsset(), p.getTimestamp(), ex.getMessage());
-            }
+            validatedRows.add(new ValidatedRow(p, type));
         }
-        log.info("Persisted {}/{} transactions from {} ({} skipped)",
-                saved, parsed.size(), sourceFile, skipped);
-        return saved;
+
+        log.info("Validation passed for {} rows", validatedRows.size());
+
+        // Phase 2: Find or create account (once, reused for all rows)
+        Account account = findOrCreateAccount(accountName, accountType);
+
+        // Phase 3: Find or create assets (build cache)
+        Map<String, Asset> assetCache = new ConcurrentHashMap<>();
+        for (ValidatedRow vr : validatedRows) {
+            assetCache.computeIfAbsent(vr.transaction.getAsset(), this::findOrCreateAsset);
+        }
+
+        // Phase 4: Persist all rows in this same transaction
+        for (ValidatedRow vr : validatedRows) {
+            Asset asset = assetCache.get(vr.transaction.getAsset());
+            Transaction tx = Transaction.builder()
+                    .account(account)
+                    .asset(asset)
+                    .timestamp(vr.transaction.getTimestamp())
+                    .type(vr.type)
+                    .amount(vr.transaction.getAmount())
+                    .unitPriceEur(vr.transaction.getUnitPriceEur())
+                    .amountFiat(vr.transaction.getFiatAmount())
+                    .feeAmount(vr.transaction.getFeeAmount())
+                    .feeAsset(vr.transaction.getFeeAsset())
+                    .feeEur(resolveFeeEur(vr.transaction))
+                    .externalId(vr.transaction.getExternalId())
+                    .sourceFile(sourceFile)
+                    .rawJson(vr.transaction.getRawLine())
+                    .build();
+
+            transactionRepository.save(tx);
+        }
+
+        log.info("Persisted all {} transactions from {}", validatedRows.size(), sourceFile);
+        return validatedRows.size();
     }
 
     // -------------------------------------------------------------------------
@@ -113,8 +143,21 @@ public class TransactionPersistenceService {
     private AssetType guessAssetType(String symbol) {
         return switch (symbol) {
             case "Gold", "Silver", "Palladium", "Platinum" -> AssetType.METAL;
+            case "EUR", "USD", "GBP", "BCPEUR", "CHF" -> AssetType.FIAT;
             default -> AssetType.CRYPTO;
         };
+    }
+
+    private java.math.BigDecimal resolveFeeEur(ParsedTransaction p) {
+        // If there's a fee in EUR, use it
+        if (p.getFeeAmount() != null && "EUR".equals(p.getFeeAsset())) {
+            return p.getFeeAmount();
+        }
+        // Otherwise, use spread (Bitpanda trading cost)
+        if (p.getSpread() != null) {
+            return p.getSpread();
+        }
+        return null;
     }
 
     private TransactionType mapType(String type) {
@@ -122,6 +165,19 @@ public class TransactionPersistenceService {
             return TransactionType.valueOf(type);
         } catch (IllegalArgumentException e) {
             return null;
+        }
+    }
+
+    /**
+     * Holds a parsed transaction and its validated type.
+     */
+    private static class ValidatedRow {
+        final ParsedTransaction transaction;
+        final TransactionType type;
+
+        ValidatedRow(ParsedTransaction transaction, TransactionType type) {
+            this.transaction = transaction;
+            this.type = type;
         }
     }
 }

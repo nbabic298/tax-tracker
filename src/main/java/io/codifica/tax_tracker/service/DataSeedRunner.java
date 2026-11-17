@@ -4,6 +4,9 @@ import io.codifica.tax_tracker.domain.enrichment.PriceEnrichmentService;
 import io.codifica.tax_tracker.domain.importer.ImportResult;
 import io.codifica.tax_tracker.domain.importer.ParsedTransaction;
 import io.codifica.tax_tracker.domain.importer.binance.BinanceTransactionImporter;
+import io.codifica.tax_tracker.domain.importer.binance.BinanceWithdrawImporter;
+import io.codifica.tax_tracker.domain.service.TaxLotService;
+import io.codifica.tax_tracker.repository.AccountRepository;
 import io.codifica.tax_tracker.repository.TransactionRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -40,21 +43,33 @@ public class DataSeedRunner implements ApplicationRunner {
             Set.of("STAKING_REWARD", "AIRDROP", "BUY", "SELL");
 
     private final TransactionRepository transactionRepository;
-    private final BinanceTransactionImporter importer;
+    private final BinanceTransactionImporter transactionImporter;
+    private final BinanceWithdrawImporter withdrawImporter;
     private final PriceEnrichmentService enrichmentService;
     private final TransactionPersistenceService persistenceService;
+    private final TaxLotService taxLotService;
+    private final AccountRepository accountRepository;
 
     @Value("${import.binance.file:src/main/resources/import-files/Binance-Transaction-History-202611131053(UTC+1)-part1-of1.csv}")
     private String binanceCsvPath;
 
+    @Value("${import.binance.withdraw-file:src/main/resources/import-files/Binance-Withdraw-History-202611141647(UTC+1)-part1-of1.csv}")
+    private String binanceWithdrawCsvPath;
+
     public DataSeedRunner(TransactionRepository transactionRepository,
-                          BinanceTransactionImporter importer,
+                          BinanceTransactionImporter transactionImporter,
+                          BinanceWithdrawImporter withdrawImporter,
                           PriceEnrichmentService enrichmentService,
-                          TransactionPersistenceService persistenceService) {
+                          TransactionPersistenceService persistenceService,
+                          TaxLotService taxLotService,
+                          AccountRepository accountRepository) {
         this.transactionRepository = transactionRepository;
-        this.importer              = importer;
-        this.enrichmentService     = enrichmentService;
-        this.persistenceService    = persistenceService;
+        this.transactionImporter = transactionImporter;
+        this.withdrawImporter = withdrawImporter;
+        this.enrichmentService = enrichmentService;
+        this.persistenceService = persistenceService;
+        this.taxLotService = taxLotService;
+        this.accountRepository = accountRepository;
     }
 
     @Override
@@ -64,29 +79,85 @@ public class DataSeedRunner implements ApplicationRunner {
             return;
         }
 
-        Path csvPath = Paths.get(binanceCsvPath);
-        log.info("Transaction table is empty. Seeding from {}", csvPath.toAbsolutePath());
+        Path txPath = Paths.get(binanceCsvPath);
+        Path withdrawPath = Paths.get(binanceWithdrawCsvPath);
 
-        // 1. Parse
-        ImportResult importResult = importer.importTransactions(csvPath);
-        log.info("Parsed {} transactions, {} warnings, {} unmatched legs",
-                importResult.getTransactionCount(),
-                importResult.getWarningCount(),
-                importResult.getUnmatchedLegCount());
+        log.info("Transaction table is empty. Seeding from {} and {}",
+                txPath.toAbsolutePath(), withdrawPath.toAbsolutePath());
 
-        importResult.getUnmatchedLegs().forEach(leg -> log.warn("Unmatched trade leg: {}", leg));
+        // Phase 1: Import transaction history
+        ImportResult txResult = transactionImporter.importTransactions(txPath);
+        log.info("Transaction history: {} parsed, {} warnings, {} unmatched legs",
+                txResult.getTransactionCount(),
+                txResult.getWarningCount(),
+                txResult.getUnmatchedLegCount());
 
-        // 2. Enrich prices (deduplicated by asset+date)
-        List<ParsedTransaction> enriched = enrichWithDedup(importResult.getTransactions());
+        txResult.getUnmatchedLegs().forEach(leg -> log.warn("Unmatched trade leg: {}", leg));
 
-        // 3. Persist
+        // Phase 2: Import withdraw history
+        ImportResult withdrawResult = withdrawImporter.importTransactions(withdrawPath);
+        log.info("Withdraw history: {} completed withdrawals parsed",
+                withdrawResult.getTransactionCount());
+
+        // Phase 3: Combine all transactions
+        List<ParsedTransaction> allTransactions = new ArrayList<>(txResult.getTransactions());
+        allTransactions.addAll(withdrawResult.getTransactions());
+        log.info("Total transactions before enrichment: {}", allTransactions.size());
+
+        // Phase 4: Enrich prices (selective)
+        List<ParsedTransaction> enriched = enrichWithDedup(allTransactions);
+
+        // Phase 5: Persist all
         int saved = persistenceService.persistAll(
                 enriched,
                 "Binance",
                 "exchange",
-                csvPath.getFileName().toString());
+                "seed-import");
 
         log.info("Seed import complete. Saved {} transactions.", saved);
+
+        // Phase 6: Process all persisted transactions through TaxLotService
+        // This creates tax lots, handles withdrawals, swaps, etc.
+        processTaxLots();
+
+        log.info("Tax lot processing complete.");
+    }
+
+    /**
+     * Processes all persisted transactions through TaxLotService to create and manage tax lots.
+     * This creates tax lots for acquisitions, reduces lots for withdrawals, and handles swaps.
+     *
+     * Must be @Transactional to keep the session open while accessing lazy-loaded associations
+     * (Asset, Account) within TaxLotService.
+     */
+    @org.springframework.transaction.annotation.Transactional
+    private void processTaxLots() {
+        long totalTransactions = transactionRepository.count();
+        log.info("Processing {} transactions through TaxLotService...", totalTransactions);
+
+        // Fetch Binance account (we seeded as "Binance" / "exchange")
+        var binanceAccount = accountRepository.findByNameAndType("Binance", "exchange")
+                .orElseThrow(() -> new IllegalStateException("Binance account not found after seed import"));
+
+        // Process each transaction in order (important for FIFO)
+        // Use eager fetch query to load Asset and Account associations upfront
+        int processed = 0;
+        for (var tx : transactionRepository.findAllWithAssetAndAccountEager()) {
+            try {
+                // Access tx.getAsset() while still within the transaction session
+                taxLotService.processTransaction(tx, binanceAccount, tx.getAsset());
+                processed++;
+
+                if (processed % 100 == 0) {
+                    log.debug("Processed {} transactions...", processed);
+                }
+            } catch (Exception ex) {
+                log.error("Failed to process transaction {} {}: {}",
+                        tx.getType(), tx.getAsset().getSymbol(), ex.getMessage(), ex);
+            }
+        }
+
+        log.info("Tax lot processing complete. Processed {} transactions.", processed);
     }
 
     /**
@@ -158,16 +229,26 @@ public class DataSeedRunner implements ApplicationRunner {
      * - unitPriceEur is not null (price was enriched or pre-calculated)
      * - amountFiat is currently null
      * - type requires a price (BUY, SELL, STAKING_REWARD, AIRDROP)
+     *
+     * Skips crypto-to-crypto trades (feeAsset != null) as their cost basis
+     * is derived from the source transaction during TaxLot creation.
      */
     private ParsedTransaction calculateAmountFiatIfNeeded(ParsedTransaction tx) {
-        if (tx.getUnitPriceEur() == null || tx.getFiatAmount() != null) {
-            return tx;  // Already has fiatAmount or no price
+        if (tx.getFiatAmount() != null) {
+            return tx;  // Already has fiatAmount
+        }
+        if (tx.getUnitPriceEur() == null) {
+            return tx;  // No price yet
         }
         if (!TYPES_NEEDING_PRICE.contains(tx.getType())) {
             return tx;  // Type doesn't need fiatAmount
         }
+        if (tx.getFeeAsset() != null && tx.getFeeAmount() != null) {
+            return tx;  // Crypto-to-crypto swap; cost basis derived from source transaction
+        }
 
-        java.math.BigDecimal amountFiat = tx.getUnitPriceEur()
+        // Standard case: unitPriceEur × amount
+        BigDecimal amountFiat = tx.getUnitPriceEur()
                 .multiply(tx.getAmount())
                 .setScale(18, java.math.RoundingMode.HALF_UP);
 
